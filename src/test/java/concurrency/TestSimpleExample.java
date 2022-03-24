@@ -3,6 +3,7 @@ package concurrency;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -56,13 +57,38 @@ public class TestSimpleExample {
 					log.info("pool queue size, call-1 : {}, call-2: {}, process- {}, res- {}", threadpool1.getQueue().size(),
 							threadpool2.getQueue().size(), threadPoolProcess.getQueue().size(), threadpoolForRes.getQueue().size());
 				})
-				.map(v -> CompletableFuture.supplyAsync(() -> firstCall(v), threadpool1).thenApplyAsync(this::secondCall, threadpool2))
+				.map(v -> CompletableFuture.supplyAsync(() -> firstSlowCall(v), threadpool1).thenApplyAsync(this::secondSlowCall, threadpool2))
 				.flatMap(cf -> Flowable.fromFuture(cf).subscribeOn(Schedulers.from(threadPoolProcess)))
 				.subscribe(v -> log.info("we get {}", v),
 						e -> log.error("error", e),
 						() -> {
-							doneSignal.countDown();
-							log.info("Running time is {} ms", (System.currentTimeMillis() - start));
+							onCompleteAction(doneSignal, start);
+						});
+
+		doneSignal.await();
+	}
+
+	private void onCompleteAction(CountDownLatch doneSignal, long start) {
+		doneSignal.countDown();
+		log.info("Running time is {} ms", (System.currentTimeMillis() - start));
+	}
+
+	@Test
+	public void test_rxjava_fromCompletion() throws InterruptedException {
+		CountDownLatch doneSignal = new CountDownLatch(1);
+		long start = System.currentTimeMillis();
+
+		Flowable.fromIterable(dataSource)
+				.doOnNext(integer -> {
+					log.info("pool queue size, call-1 : {}, call-2: {}, process- {}, res- {}", threadpool1.getQueue().size(),
+							threadpool2.getQueue().size(), threadPoolProcess.getQueue().size(), threadpoolForRes.getQueue().size());
+				})
+				.map(v -> CompletableFuture.supplyAsync(() -> firstSlowCall(v), threadpool1).thenApplyAsync(this::secondSlowCall, threadpool2))
+				.flatMap(cf -> Flowable.fromCompletionStage(cf))
+				.subscribe(v -> log.info("we get {}", v),
+						e -> log.error("error", e),
+						() -> {
+							onCompleteAction(doneSignal, start);
 						});
 
 		doneSignal.await();
@@ -79,16 +105,13 @@ public class TestSimpleExample {
 					log.info("pool queue size, call-1 : {}, call-2: {}, process- {}, res- {}", threadpool1.getQueue().size(),
 							threadpool2.getQueue().size(), threadPoolProcess.getQueue().size(), threadpoolForRes.getQueue().size());
 				})
-				.map(v -> CompletableFuture.supplyAsync(() -> firstCall(v), threadpool1))
+				.map(v -> CompletableFuture.supplyAsync(() -> firstSlowCall(v), threadpool1))
 				.flatMap(cf -> Flowable.fromFuture(cf).subscribeOn(Schedulers.from(threadPoolProcess)))
-				.map(v -> CompletableFuture.supplyAsync(() -> secondCall(v), threadpool2))
+				.map(v -> CompletableFuture.supplyAsync(() -> secondSlowCall(v), threadpool2))
 				.flatMap(cf -> Flowable.fromFuture(cf).subscribeOn(Schedulers.from(threadPoolProcess)))
 				.subscribe(v -> log.info("we get {}", v),
 						e -> log.error("error", e),
-						() -> {
-							doneSignal.countDown();
-							log.info("Running time is {} ms", (System.currentTimeMillis() - start));
-						});
+						() -> onCompleteAction(doneSignal, start));
 		doneSignal.await();
 
 	}
@@ -102,8 +125,8 @@ public class TestSimpleExample {
 				.map(volume -> {
 					log.info("pool queue size, call-1 : {}, call-2: {}, process- {}, res- {}", threadpool1.getQueue().size(),
 							threadpool2.getQueue().size(), threadPoolProcess.getQueue().size(), threadpoolForRes.getQueue().size());
-					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstCall(volume), threadpool1);
-					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondCall, threadpool2);
+					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstSlowCall(volume), threadpool1);
+					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondSlowCall, threadpool2);
 					futures.add(resultOfSecondCall);
 					return resultOfSecondCall;
 				})
@@ -127,8 +150,8 @@ public class TestSimpleExample {
 				.map(volume -> {
 					log.info("pool queue size, call-1 : {}, call-2: {}, process- {}, res- {}", threadpool1.getQueue().size(),
 							threadpool2.getQueue().size(), threadPoolProcess.getQueue().size(), threadpoolForRes.getQueue().size());
-					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstCall(volume), threadpool1);
-					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondCall, threadpool2);
+					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstSlowCall(volume), threadpool1);
+					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondSlowCall, threadpool2);
 					futures.add(resultOfSecondCall);
 					return resultOfSecondCall;
 				})
@@ -146,8 +169,8 @@ public class TestSimpleExample {
 		dataSource.stream()
 				.map(volume -> {
 					log.info("Prepare completable futures");
-					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstCall(volume), threadpool1);
-					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondCall, threadpool2);
+					CompletableFuture<Integer> resultOfFirstCall = CompletableFuture.supplyAsync(() -> firstSlowCall(volume), threadpool1);
+					CompletableFuture<Integer> resultOfSecondCall = resultOfFirstCall.thenApplyAsync(this::secondSlowCall, threadpool2);
 					futures.add(resultOfSecondCall);
 					return resultOfSecondCall;
 				})
@@ -164,7 +187,7 @@ public class TestSimpleExample {
 		log.info("Running time is {} ms", (System.currentTimeMillis() - start));
 	}
 
-	public Integer firstCall(Integer value) {
+	public Integer firstSlowCall(Integer value) {
 		log.info("Calling first API {} ", value);
 		try {
 			Thread.sleep(1000);
@@ -174,8 +197,11 @@ public class TestSimpleExample {
 		}
 		return value;
 	}
+	public CompletionStage<Integer> firstSlowCallCompletaionStage(Integer value) {
+		return CompletableFuture.supplyAsync(() -> firstSlowCall(value), threadpool1);
+	}
 
-	public Integer secondCall(Integer value) {
+	public Integer secondSlowCall(Integer value) {
 		log.info("Calling second API {} ", value);
 		try {
 			Thread.sleep(2000);
@@ -185,4 +211,9 @@ public class TestSimpleExample {
 		}
 		return value * 10;
 	}
+
+	public CompletionStage<Integer> secondSlowCallCompletaionStage(Integer value) {
+		return CompletableFuture.supplyAsync(() -> secondSlowCall(value), threadpool1);
+	}
+
 }
